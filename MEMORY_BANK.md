@@ -12,7 +12,7 @@
 
 ### Core Value Proposition
 - **Direct Bookings**: Eliminate commission fees from OTA platforms
-- **Local Focus**: Optimized for Colombian market (COP currency, local payment methods)
+- **Local Focus**: Optimized for International market (COP currency, local payment methods)
 - **Seamless Experience**: Modern, fast, mobile-first booking flow
 - **Owner Control**: Full control over pricing, availability, and guest communication
 
@@ -495,10 +495,9 @@ NEXT_PUBLIC_SITE_URL=
 - At least one approval required
 - Address all comments before merging
 
-### Documentation
-- Update this memory bank as project evolves
-- Document all API integrations
-- Maintain changelog for major updates
+## 📚 Documentation
+
+For detailed project information, architecture decisions, and development guidelines, see [ROADMAP.md](./ROADMAP.md) and [TICKETS.md](./docs/TICKETS.md).
 
 ### Version Control
 - **Main Branch**: Production-ready code
