@@ -97,20 +97,82 @@ const TABS = [
 ];
 
 const MONTHS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-const UNAVAILABLE = [4, 5, 11, 12, 18, 19];
+
+interface BlockedDate {
+  id: string;
+  start_date: string;
+  end_date: string;
+  source: 'airbnb' | 'manual' | 'booking';
+  reason: string | null;
+}
+
+const PROPERTY_SLUG = 'casa-aluna';
+
+/** Devuelve 'YYYY-MM-DD' a partir de un año, mes (0-index) y día local. */
+function toDateKey(year: number, month: number, day: number): string {
+  return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/** Convierte 'YYYY-MM-DD' a Date sin corrimiento por zona horaria. */
+function parseDateKey(key: string): Date {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+/**
+ * Marca qué días del rango bloqueado están ocupados.
+ * El `end_date` es exclusivo (convención iCal), por eso el último día ocupado es end - 1.
+ */
+function buildBlockedDayMap(blockedDates: BlockedDate[]): Map<string, BlockedDate> {
+  const map = new Map<string, BlockedDate>();
+  for (const block of blockedDates) {
+    const start = parseDateKey(block.start_date);
+    const endExclusive = parseDateKey(block.end_date);
+    const cursor = new Date(start);
+    while (cursor < endExclusive) {
+      map.set(toDateKey(cursor.getFullYear(), cursor.getMonth(), cursor.getDate()), block);
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  }
+  return map;
+}
 
 function Calendar() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
-  const [selected, setSelected] = useState<number | null>(null);
+  const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/properties/${PROPERTY_SLUG}/blocked-dates`)
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return;
+        if (data.ok) {
+          setBlockedDates(data.blockedDates ?? []);
+          setError(null);
+        } else {
+          setError(data.error ?? 'No se pudo cargar la disponibilidad.');
+        }
+      })
+      .catch(() => { if (!cancelled) setError('No se pudo cargar la disponibilidad.'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const blockedMap = buildBlockedDayMap(blockedDates);
 
   const firstDay = new Date(year, month, 1).getDay();
   const offset = firstDay === 0 ? 6 : firstDay - 1;
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-  const prev = () => { if (month === 0) { setMonth(11); setYear(y => y - 1); } else setMonth(m => m - 1); setSelected(null); };
-  const next = () => { if (month === 11) { setMonth(0); setYear(y => y + 1); } else setMonth(m => m + 1); setSelected(null); };
+  const prev = () => { if (month === 0) { setMonth(11); setYear(y => y - 1); } else setMonth(m => m - 1); };
+  const next = () => { if (month === 11) { setMonth(0); setYear(y => y + 1); } else setMonth(m => m + 1); };
+
+  const today = toDateKey(now.getFullYear(), now.getMonth(), now.getDate());
 
   return (
     <div style={{ background: '#f9fafb', borderRadius: '12px', padding: '20px', border: '1px solid #f3f4f6', width: '100%' }}>
@@ -119,40 +181,53 @@ function Calendar() {
         <span style={{ fontSize: '14px', fontWeight: '500' }}>{MONTHS[month]} {year}</span>
         <button onClick={next} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: '16px', padding: '4px 8px' }}>▶</button>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', textAlign: 'center' }}>
-        {['Lu','Ma','Mi','Ju','Vi','Sá','Do'].map(d => (
-          <div key={d} style={{ fontSize: '11px', color: '#9ca3af', padding: '4px 0', fontWeight: '500' }}>{d}</div>
-        ))}
-        {Array.from({ length: offset }).map((_, i) => <div key={`e-${i}`} />)}
-        {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => {
-          const unavail = UNAVAILABLE.includes(d);
-          const isSel = selected === d;
-          return (
-            <div
-              key={d}
-              onClick={() => !unavail && setSelected(d)}
-              style={{
-                padding: '7px 4px',
-                borderRadius: '6px',
-                fontSize: '13px',
-                cursor: unavail ? 'default' : 'pointer',
-                background: isSel ? '#1e3a5f' : 'transparent',
-                color: isSel ? 'white' : unavail ? '#d1d5db' : '#374151',
-                textDecoration: unavail ? 'line-through' : 'none',
-                fontWeight: isSel ? '500' : '400',
-              }}
-            >{d}</div>
-          );
-        })}
-      </div>
-      <div style={{ display: 'flex', gap: '16px', marginTop: '16px', fontSize: '11px', color: '#6b7280' }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#e5e7eb', display: 'inline-block' }} /> No disponible
-        </span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#bfdbfe', display: 'inline-block' }} /> Disponible
-        </span>
-      </div>
+      {loading && (
+        <p style={{ fontSize: '13px', color: '#9ca3af', textAlign: 'center', padding: '16px 0' }}>Cargando disponibilidad…</p>
+      )}
+
+      {error && !loading && (
+        <p style={{ fontSize: '13px', color: '#b45309', textAlign: 'center', padding: '8px 0' }}>{error}</p>
+      )}
+
+      {!loading && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', textAlign: 'center' }}>
+            {['Lu','Ma','Mi','Ju','Vi','Sá','Do'].map(d => (
+              <div key={d} style={{ fontSize: '11px', color: '#9ca3af', padding: '4px 0', fontWeight: '500' }}>{d}</div>
+            ))}
+            {Array.from({ length: offset }).map((_, i) => <div key={`e-${i}`} />)}
+            {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => {
+              const key = toDateKey(year, month, d);
+              const block = blockedMap.get(key);
+              const isPast = key < today;
+              return (
+                <div
+                  key={d}
+                  title={block ? `No disponible (${block.source})` : isPast ? 'Fecha pasada' : 'Disponible'}
+                  style={{
+                    padding: '7px 4px',
+                    borderRadius: '6px',
+                    fontSize: '13px',
+                    cursor: 'default',
+                    background: block ? '#fee2e2' : 'transparent',
+                    color: (block || isPast) ? '#d1d5db' : '#374151',
+                    textDecoration: block ? 'line-through' : 'none',
+                    fontWeight: block ? '500' : '400',
+                  }}
+                >{d}</div>
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', gap: '16px', marginTop: '16px', fontSize: '11px', color: '#6b7280', flexWrap: 'wrap' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#fee2e2', display: 'inline-block' }} /> No disponible
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#bfdbfe', display: 'inline-block' }} /> Disponible
+            </span>
+          </div>
+        </>
+      )}
     </div>
   );
 }
