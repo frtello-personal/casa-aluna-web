@@ -143,10 +143,15 @@ function Calendar() {
   const [month, setMonth] = useState(now.getMonth());
   const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    // Si la carga tarda (porque hay un sync foreground con Airbnb),
+    // pasados 1.5s cambiamos el mensaje a "Sincronizando con Airbnb…".
+    const slowTimer = setTimeout(() => { if (!cancelled) setSyncing(true); }, 1500);
+
     fetch(`/api/properties/${PROPERTY_SLUG}/blocked-dates`)
       .then(r => r.json())
       .then(data => {
@@ -159,8 +164,12 @@ function Calendar() {
         }
       })
       .catch(() => { if (!cancelled) setError('No se pudo cargar la disponibilidad.'); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+      .finally(() => {
+        clearTimeout(slowTimer);
+        if (!cancelled) { setSyncing(false); setLoading(false); }
+      });
+
+    return () => { cancelled = true; clearTimeout(slowTimer); };
   }, []);
 
   const blockedMap = buildBlockedDayMap(blockedDates);
@@ -182,7 +191,24 @@ function Calendar() {
         <button onClick={next} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: '16px', padding: '4px 8px' }}>▶</button>
       </div>
       {loading && (
-        <p style={{ fontSize: '13px', color: '#9ca3af', textAlign: 'center', padding: '16px 0' }}>Cargando disponibilidad…</p>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', padding: '32px 0' }}>
+          <span
+            aria-hidden
+            style={{
+              width: '28px',
+              height: '28px',
+              borderRadius: '50%',
+              border: '3px solid #dbeafe',
+              borderTopColor: '#1e3a5f',
+              display: 'inline-block',
+              animation: 'cal-spin 0.8s linear infinite',
+            }}
+          />
+          <p style={{ fontSize: '13px', color: '#6b7280', margin: 0 }}>
+            {syncing ? 'Sincronizando disponibilidad con Airbnb…' : 'Cargando disponibilidad…'}
+          </p>
+          <style>{`@keyframes cal-spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
       )}
 
       {error && !loading && (
